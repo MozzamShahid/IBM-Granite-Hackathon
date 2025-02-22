@@ -1,0 +1,8 @@
+@import "tailwindcss";
+
+
+@layer base {
+  label { @apply text-xl font-light md:text-2xl; }
+  input { @apply bg-white border-black border-1 p-2; }
+  button { @apply p-2; }
+}
