@@ -3,6 +3,13 @@ import axios from 'axios'; // Axios Using for
 import { IoAttach, IoSend, IoClose, IoLink } from 'react-icons/io5';
 import { motion } from 'framer-motion';
 
+const api = axios.create({
+    baseURL: '/api',  // This will use the proxy we set up
+    headers: {
+        'Content-Type': 'application/json'
+    }
+});
+
 const Bench = () => {
     const [messages, setMessages] = useState([]);
     const [input, setInput] = useState('');
@@ -55,7 +62,6 @@ const Bench = () => {
         if (!input.trim() && !files.length && !urls.some(url => url.trim())) return;
 
         setLoading(true);
-        const formData = new FormData();
         const currentInput = input;
         const currentFiles = [...files];
         const currentUrls = urls
@@ -68,20 +74,15 @@ const Bench = () => {
         setUrls(['']);
         fileRef.current.value = '';
 
-        // Prepare form data
-        formData.append('message', currentInput);
-        formData.append('sessionId', sessionId);
-        formData.append('urls', JSON.stringify(currentUrls));
-        currentFiles.forEach((file, i) => formData.append(`file_${i}`, file));
-
-        // Log data being sent
-        console.log('Sending data:', {
+        // Prepare data for API
+        const apiData = {
             message: currentInput,
-            sessionId,
             files: currentFiles.map(f => f.name),
             urls: currentUrls,
-            timestamp: new Date().toISOString()
-        });
+            sessionId: sessionId.toString()
+        };
+
+        console.log('Sending data to API:', apiData);
 
         // Add user message to chat
         setMessages(prev => [...prev, {
@@ -94,22 +95,21 @@ const Bench = () => {
 
         if (showGuide) setShowGuide(false);
 
+        // Simple API call with basic error handling
         try {
-            const res = await axios.post('http://your-backend-url/chat', formData, {
-                headers: { 'Content-Type': 'multipart/form-data' }
-            });
-
-            console.log('Server response:', res.data);
+            const res = await api.get('/', { params: apiData });
+            console.log('API response:', res.data);
             
             setMessages(prev => [...prev, {
                 type: 'ai',
-                content: res.data.message,
+                content: res.data.response || 'No response from AI',
                 time: new Date()
             }]);
-        } catch {
-            setMessages(prev => [...prev, { 
-                type: 'error', 
-                content: 'Error processing request' 
+        } catch (err) {
+            console.log('API Error:', err);
+            setMessages(prev => [...prev, {
+                type: 'error',
+                content: 'Error processing request'
             }]);
         }
 
