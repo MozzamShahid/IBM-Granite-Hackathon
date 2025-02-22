@@ -1,164 +1,226 @@
-import React, { useState } from 'react'
-import axios from 'axios';
+import React, { useState, useRef, useEffect } from 'react';
+import axios from 'axios'; // Axios Using for 
+import { IoAttach, IoSend, IoClose, IoLink } from 'react-icons/io5';
+import { motion } from 'framer-motion';
 
 const Bench = () => {
-    const [useAlternative, setUseAlternative] = useState(false);
-    const [backendData, setBackendData] = useState([]);
-    const [numPdfs, setNumPdfs] = useState(1);
-    const [urls, setUrls] = useState(['']);
+    const [messages, setMessages] = useState([]);
+    const [input, setInput] = useState('');
     const [files, setFiles] = useState([]);
+    const [urls, setUrls] = useState(['']);
     const [loading, setLoading] = useState(false);
+    const [showGuide, setShowGuide] = useState(true);
+    const [sessionId] = useState(Math.floor(Math.random() * 2000) + 1);
     
-    // Handle PDF upload
-    const handleFileUpload = (e) => {
-        const selectedFiles = Array.from(e.target.files);
-        if (selectedFiles.length > 4) {
-            alert('Maximum 4 files allowed');
-            e.target.value = null;
-            return;
-        }
-        if (selectedFiles.length > numPdfs) {
-            alert(`Please upload only ${numPdfs} PDF(s)`);
-            e.target.value = null;
-            return;
-        }
-        setFiles(selectedFiles);
-        console.log('Selected files:', selectedFiles);
-    }
+    const chatRef = useRef(null);
+    const fileRef = useRef(null);
 
-    // Handle URL inputs
-    const handleUrlChange = (index, value) => {
-        const newUrls = [...urls];
-        newUrls[index] = value;
-        setUrls(newUrls);
-    }
+    useEffect(() => {
+        chatRef.current?.scrollTo(0, chatRef.current.scrollHeight);
+    }, [messages]);
+
+    const handleFiles = (e) => {
+        const newFiles = Array.from(e.target.files || []);
+        if (!newFiles.length) return;
+        if (files.length + newFiles.length > 4) {
+            alert(`You can only add ${4 - files.length} more files`);
+            return;
+        }
+        setFiles(prev => [...prev, ...newFiles]);
+    };
+
+    const removeFile = (index) => setFiles(files.filter((_, i) => i !== index));
 
     const addUrlField = () => {
-        if (urls.length >= 4) {
-            alert('Maximum 4 URLs allowed');
-            return;
-        }
         setUrls([...urls, '']);
-    }
+    };
 
-    const handleSubmit = async () => {
+    const removeUrl = (index) => {
+        setUrls(urls.filter((_, i) => i !== index));
+    };
+
+    const formatUrl = (url) => {
+        if (!url) return '';
+        return url.trim().replace(/^https?:\/\//i, '');
+    };
+
+    const handleUrlChange = (index, value) => {
+        const newUrls = [...urls];
+        newUrls[index] = formatUrl(value);
+        setUrls(newUrls);
+    };
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        if (!input.trim() && !files.length && !urls.some(url => url.trim())) return;
+
+        setLoading(true);
+        const formData = new FormData();
+        const currentInput = input;
+        const currentFiles = [...files];
+        const currentUrls = urls
+            .filter(url => url.trim())
+            .map(url => `http://${url.trim()}`);
+
+        // Clear inputs immediately
+        setInput('');
+        setFiles([]);
+        setUrls(['']);
+        fileRef.current.value = '';
+
+        // Prepare form data
+        formData.append('message', currentInput);
+        formData.append('sessionId', sessionId);
+        formData.append('urls', JSON.stringify(currentUrls));
+        currentFiles.forEach((file, i) => formData.append(`file_${i}`, file));
+
+        // Log data being sent
+        console.log('Sending data:', {
+            message: currentInput,
+            sessionId,
+            files: currentFiles.map(f => f.name),
+            urls: currentUrls,
+            timestamp: new Date().toISOString()
+        });
+
+        // Add user message to chat
+        setMessages(prev => [...prev, {
+            type: 'user',
+            content: currentInput,
+            files: currentFiles.map(f => f.name),
+            urls: currentUrls,
+            time: new Date()
+        }]);
+
+        if (showGuide) setShowGuide(false);
+
         try {
-            setLoading(true);
-            const formData = new FormData();
+            const res = await axios.post('http://your-backend-url/chat', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
 
-            if (!useAlternative) {
-                // Handle PDF submission
-                files.forEach((file, index) => {
-                    formData.append(`pdf_${index}`, file);
-                });
-                
-                console.log('Submitting PDFs:', files);
-                
-                const response = await axios.post('http://your-backend-url/upload-pdfs', formData, {
-                    headers: {
-                        'Content-Type': 'multipart/form-data',
-                    },
-                });
-                
-                console.log('PDF upload response:', response.data);
-                setBackendData(response.data);
-            } else {
-                // Handle URL submission
-                const filteredUrls = urls.filter(url => url.trim() !== '');
-                
-                console.log('Submitting URLs:', filteredUrls);
-                
-                const response = await axios.post('http://your-backend-url/process-urls', {
-                    urls: filteredUrls
-                });
-                
-                console.log('URL processing response:', response.data);
-                setBackendData(response.data);
-            }
-        } catch (error) {
-            console.error('Submission error:', error);
-            alert('Error submitting data. Please try again.');
-        } finally {
-            setLoading(false);
+            console.log('Server response:', res.data);
+            
+            setMessages(prev => [...prev, {
+                type: 'ai',
+                content: res.data.message,
+                time: new Date()
+            }]);
+        } catch {
+            setMessages(prev => [...prev, { 
+                type: 'error', 
+                content: 'Error processing request' 
+            }]);
         }
-    }
+
+        setLoading(false);
+    };
 
     return (
-        <div className='h-screen flex flex-col justify-center items-center gap-5 p-10'>
-            <h2 className='text-2xl md:text-2xl lg:text-4xl text-center font-bold'>AI-Powered Product Breakdown & Feature Extraction</h2>
+        <div className='min-h-screen bg-gray-50 p-4 flex flex-col'>
+            {showGuide && (
+                <div className='mb-8 text-center max-w-2xl mx-auto'>
+                    <div className='mb-6'>
+                        <img src="https://images.unsplash.com/photo-1677442136019-21780ecad995?w=800" alt="AI Analysis" className='w-full h-40 object-cover rounded-lg' />
+                    </div>
+                    <div className='bg-white p-6 rounded-lg shadow-sm'>
+                        <h2 className='text-xl font-semibold mb-4'>AI Product Analysis</h2>
+                        <div className='text-sm text-gray-600 space-y-2'>
+                            <p>Upload PDFs (max 4) or add URLs</p>
+                            <p>💭 Ask questions about the content</p>
+                            <p>🤖 Get AI-powered insights</p>
+                        </div>
+                    </div>
+                </div>
+            )}
 
-            <div className='flex flex-col gap-2'>
-                {!useAlternative && (
-                    <>
-                        <label>How many pdf you want to upload? <span className='text-xs'>*Max 4 Allowed</span></label>
-                        <input 
-                            placeholder='Enter Number Here' 
-                            type="number" 
-                            min={1} 
-                            max={4} 
-                            value={numPdfs}
-                            onChange={(e) => setNumPdfs(parseInt(e.target.value))}
-                        />
-
-                        <label>Upload Your Files</label>
-                        <input type="file" accept='application/pdf' multiple onChange={handleFileUpload} />
-                        <button className='bg-amber-300 hover:bg-amber-400 disabled:bg-gray-300'
-                            onClick={handleSubmit}
-                            disabled={loading || files.length === 0}
-                        >
-                            {loading ? 'Processing...' : 'Submit'}
-                        </button>
-                    </>
+            <div ref={chatRef} 
+                style={{ maxHeight: 'calc(100vh - 250px)' }}
+                className='flex-1 bg-white rounded-lg p-4 mb-4 overflow-y-auto' >
+                {messages.map((msg, i) => (
+                    <motion.div key={i} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className={`mb-4 ${msg.type === 'user' ? 'text-right' : 'text-left'}`}>
+                        <div className={`inline-block max-w-[80%] p-3 rounded-xl shadow-sm
+                            ${msg.type === 'user' ? 'bg-amber-100' : 'bg-white'}`} >
+                            <p className='text-sm'>{msg.content}</p>
+                            {msg.files?.length > 0 && (
+                                <div className='text-xs text-gray-500 mt-2 flex items-center gap-1'>
+                                    <IoAttach /> {msg.files.join(', ')}
+                                </div>
+                            )}
+                            {msg.urls?.length > 0 && (
+                                <div className='text-xs text-gray-500 mt-2 flex items-center gap-1'>
+                                    <IoLink /> {msg.urls.join(', ')}
+                                </div>
+                            )}
+                            <div className='text-xs text-gray-400 mt-1'>
+                                {msg.time?.toLocaleTimeString()}
+                            </div>
+                        </div>
+                    </motion.div>
+                ))}
+                {loading && (
+                    <motion.div 
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        className='text-center p-4'
+                    >
+                        <div className='inline-block px-4 py-2 rounded-full bg-amber-50 text-sm'>
+                            AI is thinking...
+                        </div>
+                    </motion.div>
                 )}
+            </div>
 
-                <p className='text-sm cursor-pointer underline' onClick={() => setUseAlternative(!useAlternative)}>
-                    {useAlternative ? "Use PDF Upload Instead" : "Donot have a pdf, Want to use web url instead? click here"}
-                </p>
-
-                {useAlternative && (
-                    <>
-                        <label>Please Submit the url(s) of the website</label>
-                        {urls.map((url, index) => (
-                            <input key={index} type="url" value={url} onChange={(e) => handleUrlChange(index, e.target.value)} placeholder='url here www.google.com' />
+            <form onSubmit={handleSubmit} className='bg-white rounded-lg p-4'>
+                {urls.length > 0 && (
+                    <div className='mb-4 space-y-2'>
+                        {urls.map((url, i) => (
+                            <div key={i} className='flex gap-2'>
+                                <input type="text" value={url} onChange={(e) => handleUrlChange(i, e.target.value)} placeholder='www.example.com' className='flex-1 p-2 rounded-lg border text-sm focus:outline-none focus:border-amber-300' />
+                                <button type="button" onClick={() => removeUrl(i)} className='text-gray-400 hover:text-red-500'>
+                                    <IoClose />
+                                </button>
+                            </div>
                         ))}
-                        <button 
-                            className='bg-amber-300 hover:bg-amber-400 w-full'
-                            onClick={addUrlField}
-                        >
-                            Add Another URL
+                        <button type="button" onClick={addUrlField} className='text-sm text-amber-500 hover:text-amber-600'>
+                            + Add another URL
                         </button>
-                        <button 
-                            className='bg-amber-300 hover:bg-amber-400 disabled:bg-gray-300'
-                            onClick={handleSubmit}
-                            disabled={loading || urls.every(url => url.trim() === '')}
-                        >
-                            {loading ? 'Processing...' : 'Submit'}
-                        </button>
-                    </>
+                    </div>
                 )}
 
-                {/* Display Data from Backend For the backend team to **Edit** */}
-                {backendData.length > 0 ? (
-                <div className='p-5 border-1'>
-                    <h2 className='text-xl md:text-2xl lg:text-4xl text-left font-normal'>Chat Response</h2>
-
-                    <div className='max-h-64 overflow-y-auto'>
-                        {backendData.map((item, index) => (
-                            <div key={index}>
-                                {/* Incase of Text */}
-                                <p>{item.text}</p>
-                                {/* Incase of Image */}
-                                {item.imageUrl && <img src={item.imageUrl} alt="Response" className="mt-2 w-32 h-32 rounded" />}
+                {files.length > 0 && (
+                    <div className='mb-4 flex flex-wrap gap-2'>
+                        {files.map((file, i) => (
+                            <div key={i} className='bg-amber-50 px-3 py-1 rounded-full flex items-center gap-2 text-sm'>
+                                <span>{file.name}</span>
+                                <IoClose 
+                                    className='cursor-pointer hover:text-red-500'
+                                    onClick={() => removeFile(i)}
+                                />
                             </div>
                         ))}
                     </div>
+                )}
+                
+                <div className='flex gap-2'>
+                    <input ref={fileRef} type="file" multiple onChange={handleFiles} className='hidden' />
+                    <button type="button" onClick={() => fileRef.current?.click()} className='p-2 hover:bg-amber-50 rounded-full'>
+                        <IoAttach className={files.length ? 'text-amber-500' : 'text-gray-500'} />
+                    </button>
+                    <button type="button" onClick={addUrlField} className='p-2 hover:bg-amber-50 rounded-full'>
+                        <IoLink className={urls.length > 1 ? 'text-amber-500' : 'text-gray-500'} />
+                    </button>
+                    <input value={input} onChange={(e) => setInput(e.target.value)} placeholder='Type your message...' className='flex-1 p-3 rounded-xl border focus:outline-none focus:border-amber-300' />
+                    <button  type="submit"
+                        disabled={loading}
+                        className='bg-amber-400 hover:bg-amber-500 p-3 rounded-xl disabled:bg-gray-300 text-white'
+                    >
+                        {loading ? '...' : <IoSend />}
+                    </button>
                 </div>
-                ) : ( <p></p> 
-                 )}
-
-            </div>
+            </form>
         </div>
-    )
-}
+    );
+};
 
-export default Bench
+export default Bench;
